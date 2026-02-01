@@ -7,8 +7,8 @@
       "max_tokens": 4096
     },
     "openai": {
-      "model": "openai--gpt-oss-120b",
-      "base_url": "http://aitools.cs.vt.edu:7860/opensource/v1",
+      "model": "gpt-oss-120b",
+      "base_url": "https://llm-api.arc.vt.edu/api/v1/",
       "temperature": 0,
       "max_tokens": 4096
     }
