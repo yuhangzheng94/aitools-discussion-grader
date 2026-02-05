@@ -11,6 +11,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Tuple
+from pathlib import Path
 
 from .submission import Submission, GradedSubmission
 from .grading import GradingCriteria
@@ -99,15 +100,19 @@ class BaseAIProvider(ABC):
         Returns:
             Tuple of (system_prompt, user_prompt)
         """
-        # System prompt with clear instructions
-        system_prompt = (
-            "You are an expert instructor grading computer science discussions. "
-            "Write feedback and grading reasoning directly to the student in a clear, "
-            "professional tone. Be concise but constructive. Grade fairly and provide "
-            "specific feedback without being overly verbose. Avoid using phrases like "
-            "'the student' and prefer to use 'you' instead. The feedback should be "
-            "constructive and actionable, helping the student understand how to improve."
-        )
+        # Load prompts from the external files
+        prompts_dir = Path(__file__).parents[1] / "prompts"
+        system_prompt_path = prompts_dir / "system_prompt.txt"
+        user_prompt_path = prompts_dir / "user_prompt.txt"
+        try:
+            system_prompt = system_prompt_path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            raise AIProviderError(f"Failed to load system prompt from {system_prompt_path}: {e}")
+
+        try:
+            user_prompt_template = user_prompt_path.read_text(encoding="utf-8")
+        except Exception as e:
+            raise AIProviderError(f"Failed to load user prompt from {user_prompt_path}: {e}")
         
         # Build criteria string
         criteria_str = "\n".join(f"- {criterion}" for criterion in criteria.criteria_list)
@@ -118,10 +123,8 @@ class BaseAIProvider(ABC):
             addressed_questions_json = """
             "addressed_questions": {
             """
-            
             for key, description in criteria.question_keys.items():
                 addressed_questions_json += f'    "{key}": true/false, // {description}\n'
-            
             addressed_questions_json += """
             },"""
         
@@ -130,43 +133,23 @@ class BaseAIProvider(ABC):
                              for keyword in ["software engineering", "software development", 
                                            "coding practices", "programming paradigm"])
         
-        # User prompt with all requirements
-        user_prompt = f"""
-        Grade this student's discussion response:
-        
-        Question:
-        {submission.question_text}
-        
-        Student Submission:
-        {submission.submission_text}
-        
-        Please grade this submission out of {criteria.total_points} points.
-        Evaluate based on these criteria:
-        {criteria_str}
-        
-        The submission should be at least {criteria.min_words} words. Current word count: {submission.word_count} words.
-        Consider this in your grading.
-        
-        {"Please pay special attention to the student's understanding of software engineering concepts and their ability to apply these concepts to practical scenarios." if is_software_eng else ""}
-        
-        IMPORTANT GRADING REQUIREMENT: If you deduct any points (giving less than {criteria.total_points} points), you MUST clearly justify the deduction in your feedback. Explain specifically what was missing, insufficient, or incorrect that led to the point reduction. Be constructive and specific about what the student needs to improve.
-        
-        SCORING REQUIREMENT: Use only WHOLE NUMBER scores (e.g., 5, 6, 7, 8) - no decimal points allowed (e.g., NOT 5.0, 6.5, 7.2).
-        
-        Provide your response in JSON format like this:
-        {{
-            "score": [whole number score out of {criteria.total_points}],
-            "feedback": "[1-2 paragraph summary of strengths and weaknesses, with clear justification for any point deductions]",
-            "improvement_suggestions": [
-                "specific suggestion 1",
-                "specific suggestion 2",
-                "specific suggestion 3"
-            ],{addressed_questions_json}
-            "word_count": {submission.word_count}
-        }}
-        
-        ONLY return the JSON, no other text.
-        """
+        # Prepare dynamic parts for the template
+        software_note = (
+            "Please pay special attention to the student's understanding of software engineering concepts and their ability to apply these concepts to practical scenarios."
+            if is_software_eng else ""
+        )
+
+        # Render the user prompt from the external template
+        user_prompt = user_prompt_template.format(
+            question_text=submission.question_text,
+            submission_text=submission.submission_text,
+            total_points=criteria.total_points,
+            criteria_str=criteria_str,
+            min_words=criteria.min_words,
+            word_count=submission.word_count,
+            software_note=software_note,
+            addressed_questions_json=addressed_questions_json,
+        )
         
         return system_prompt, user_prompt
     
